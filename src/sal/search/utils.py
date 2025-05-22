@@ -18,8 +18,12 @@ from dataclasses import dataclass
 
 import numpy as np
 from vllm import LLM, SamplingParams
+import asyncio
 
 logger = logging.getLogger()
+
+from .simple_llm import llm as simple_llm
+from .simple_llm import async_llm as simple_async_llm
 
 
 def build_conv(
@@ -112,17 +116,43 @@ def generate_k_steps(
             gen_result.initial_prompt + gen_result.lookahead_text
             for gen_result in current_gen
         ]
-        llm_outputs = llm.generate(gen_prompts, gen_sampling_params, use_tqdm=False)
+        
+        # llm_outputs = llm.generate(gen_prompts, gen_sampling_params, use_tqdm=False)
+        
+        # llm is a partial function that takes a fixed client defined at the top level
+        # so here we check whether the client is async or not
+        if llm.func == simple_llm:
+            llm_outputs = llm(
+                gen_prompts, 
+                temperature=gen_sampling_params.temperature, 
+                max_tokens=gen_sampling_params.max_tokens, 
+                n=1, 
+                stop=gen_sampling_params.stop, 
+            )
+        elif llm.func == simple_async_llm:
+            llm_outputs = asyncio.run(
+                llm(
+                    gen_prompts, 
+                    temperature=gen_sampling_params.temperature, 
+                    max_tokens=gen_sampling_params.max_tokens, 
+                    n=1, 
+                    stop=gen_sampling_params.stop, 
+                )
+            )
+        else:
+            raise ValueError("llm function not recognized")
+
         for gen_result, output in zip(current_gen, llm_outputs):
-            gen_text = output.outputs[0].text
+            # gen_text = output.outputs[0].text
+            gen_text = output.choices[0].message.content
             if i == 0:
                 gen_result.first_step_text = gen_text
-                gen_result.first_step_stop_reason = output.outputs[0].stop_reason
+                gen_result.first_step_stop_reason = output.choices[0].stop_reason
                 if gen_result.first_step_stop_reason is None:
                     gen_result.first_step_stop_reason = "EOS"
 
             gen_result.lookahead_text = gen_result.lookahead_text + gen_text
-            gen_result.stop_reason = output.outputs[0].stop_reason
+            gen_result.stop_reason = output.choices[0].stop_reason
             if gen_result.stop_reason is None:
                 gen_result.stop_reason = "EOS"
 

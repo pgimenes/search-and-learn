@@ -15,7 +15,7 @@
 
 import logging
 
-import torch
+import torch, os
 from vllm import LLM
 
 from sal.config import Config
@@ -25,10 +25,17 @@ from sal.utils.data import get_dataset, save_dataset
 from sal.utils.parser import H4ArgumentParser
 from sal.utils.score import score
 
+from sal.search.simple_llm import llm as simple_llm
+from functools import partial
+from openai import OpenAI, AsyncOpenAI
+
 logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.WARNING)
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
 
 APPROACHES = {
@@ -44,14 +51,18 @@ def main():
 
     approach_fn = APPROACHES[config.approach]
 
-    num_gpus = torch.cuda.device_count()
-    llm = LLM(
-        model=config.model_path,
-        gpu_memory_utilization=config.gpu_memory_utilization,
-        enable_prefix_caching=True,
-        seed=config.seed,
-        tensor_parallel_size=num_gpus,
+    hp_client = OpenAI(
+        base_url="http://127.0.0.1:8001/v1", 
+        api_key="EMPTY",
     )
+    lp_client = OpenAI(
+        base_url="http://127.0.0.1:8000/v1", 
+        api_key="EMPTY",
+    )
+
+    hp_llm = partial(simple_llm, client=hp_client)
+    lp_llm = partial(simple_llm, client=lp_client)
+
     prm = load_prm(config)
 
     dataset = get_dataset(config)
@@ -59,7 +70,7 @@ def main():
         approach_fn,
         batched=True,
         batch_size=config.search_batch_size,
-        fn_kwargs={"config": config, "llm": llm, "prm": prm},
+        fn_kwargs={"config": config, "hp_llm": hp_llm, "lp_llm": lp_llm, "prm": prm},
         desc="Running search",
         load_from_cache_file=False,
     )

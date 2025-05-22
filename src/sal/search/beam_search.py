@@ -28,8 +28,17 @@ from .utils import Beam, build_conv, generate_k_steps, last
 logger = logging.getLogger()
 from sal.utils.score import aggregate_scores
 
+from transformers import AutoTokenizer
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
 
-def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[Beam]:
+
+def _beam_search(
+    batch_of_prompts, 
+    config: Config, 
+    hp_llm: LLM, 
+    lp_llm: LLM, 
+    prm: PRM
+) -> list[Beam]:
     sampling_params = SamplingParams(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
@@ -99,7 +108,8 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[B
         continue_final_message = i > 0
         add_generation_prompt = i == 0
 
-        tokenizer = llm.get_tokenizer()
+
+        # tokenizer = llm.get_tokenizer()
         if config.custom_chat_template is not None:
             tokenizer.chat_template = config.custom_chat_template
         templated_convs = tokenizer.apply_chat_template(
@@ -109,6 +119,9 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[B
             tokenize=False,
         )
         lookahead = 0 if i == config.num_iterations - 1 else config.lookahead
+
+        llm = hp_llm
+
         gen_results = generate_k_steps(
             templated_convs, lookahead, llm, sampling_params, 1
         )
@@ -197,9 +210,21 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> list[B
     return completed_beams
 
 
-def beam_search(examples, config: Config, llm: LLM, prm: PRM):
+def beam_search(
+        examples, 
+        config: Config, 
+        hp_llm: LLM, 
+        lp_llm: LLM, 
+        prm: PRM
+    ):
     problems = examples["problem"]
-    beam_results = _beam_search(problems, config, llm, prm)
+    beam_results = _beam_search(
+        problems, 
+        config, 
+        hp_llm, 
+        lp_llm, 
+        prm
+    )
 
     # Group together alike beams and store in the dataset
     grouped_results = defaultdict(list)
@@ -207,6 +232,14 @@ def beam_search(examples, config: Config, llm: LLM, prm: PRM):
         grouped_results[results.prompt].append(results)
 
     results = {"completions": [], "pred": [], "completion_tokens": [], "scores": []}
+
+    from latex2sympy2 import latex2sympy
+    from sympy import latex, simplify
+
+    def get_canonical_form(expression: str) -> str:
+        parsed_expr = latex2sympy(expression)
+        simplified_expr = simplify(parsed_expr)
+        return latex(simplified_expr)
 
     for p in problems:
         beams = grouped_results[p]
