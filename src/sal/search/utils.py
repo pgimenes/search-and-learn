@@ -147,12 +147,12 @@ def generate_k_steps(
             gen_text = output.choices[0].message.content
             if i == 0:
                 gen_result.first_step_text = gen_text
-                gen_result.first_step_stop_reason = output.choices[0].stop_reason
+                gen_result.first_step_stop_reason = output.choices[0].finish_reason
                 if gen_result.first_step_stop_reason is None:
                     gen_result.first_step_stop_reason = "EOS"
 
             gen_result.lookahead_text = gen_result.lookahead_text + gen_text
-            gen_result.stop_reason = output.choices[0].stop_reason
+            gen_result.stop_reason = output.choices[0].finish_reason
             if gen_result.stop_reason is None:
                 gen_result.stop_reason = "EOS"
 
